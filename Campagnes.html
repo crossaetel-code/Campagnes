@@ -34,6 +34,7 @@
     <button id="importCampagnes" type="button">Importer CSV - campagnes</button>
     <input id="csvTravaux" type="file" accept=".csv,text/csv" hidden>
     <button id="importTravaux" type="button">Importer CSV – travaux en mer</button>
+    <button id="exportDonneesJSON" type="button">💾 Exporter les données (JSON)</button>
   </div>
   <label class="anciennes-campagnes-toggle"><input id="afficherAnciennesCampagnes" type="checkbox"> Afficher les anciennes campagnes</label>
   <div id="liste"></div>
@@ -157,6 +158,25 @@ let DATA = [
  {debut:"2026-05-23", fin:"2026-10-30", zone:"Frontière espagnole", coords:[43.38,-1.75], navire:"NG WORKER, NKT VICTORIA, G/V AR LAERES", obs:"Interconnexion France-Espagne INELFE", ref:"", categorie:"travaux"},
  {debut:"2026-10-17", fin:"", zone:"Banc de Guérande", coords:[47.15,-2.5], navire:"TVO MARINER", obs:"Réparation câble inter-éolien – parc du Banc de Guérande", ref:"", categorie:"travaux"},
 ];
+
+(async function demarrerCarte(){
+  // Chargement central facultatif : en file://, fetch n’est pas fiable, on conserve les données intégrées.
+  if (location.protocol !== "file:") {
+    try {
+      const reponse = await fetch("donnees.json", {cache:"no-store"});
+      if (reponse.ok) {
+        const donneesDistantes = await reponse.json();
+        if (Array.isArray(donneesDistantes) && donneesDistantes.every(c =>
+          c && typeof c === "object" && typeof c.debut === "string" &&
+          typeof c.zone === "string" && Array.isArray(c.coords) && c.coords.length === 2 &&
+          c.coords.every(Number.isFinite))) {
+          DATA = donneesDistantes;
+        }
+      }
+    } catch (_) {
+      // Fichier absent, indisponible ou invalide : utiliser les données intégrées sans alerte.
+    }
+  }
 
 function dateISO(valeur){
   const v = String(valeur ?? "").trim();
@@ -348,10 +368,28 @@ function brancherImport(boutonId,inputId,categorie){
 }
 brancherImport('importCampagnes','csvCampagnes','campagnes');
 brancherImport('importTravaux','csvTravaux','travaux');
+function exporterDonneesJSON(){
+  const donneesExportees = DATA.map(c => ({
+    debut:c.debut, fin:c.fin || "", zone:c.zone, coords:[...c.coords],
+    navire:c.navire || "", obs:c.obs || "", ref:c.ref || "", categorie:c.categorie || "campagnes"
+  }));
+  const blob = new Blob([JSON.stringify(donneesExportees, null, 2)], {type:"application/json;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const lien = document.createElement("a");
+  lien.href = url;
+  lien.download = "donnees.json";
+  document.body.appendChild(lien);
+  lien.click();
+  lien.remove();
+  URL.revokeObjectURL(url);
+}
+document.getElementById('exportDonneesJSON').addEventListener('click',exporterDonneesJSON);
 recherche.addEventListener('input',actualiserAffichage);
 afficherAnciennesCampagnes.addEventListener('change',actualiserAffichage);
 actualiserAffichage();
+})();
 </script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" data-cf-beacon='{"version":"2024.11.0","token":"8607d2a720d14b038279025b2b5a82e5","spa":2}' crossorigin="anonymous"></script>
 <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" data-cf-beacon='{"version":"2024.11.0","token":"8607d2a720d14b038279025b2b5a82e5","spa":2}' crossorigin="anonymous"></script>
 </body>
 </html>
