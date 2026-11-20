@@ -43,8 +43,9 @@
   🟢 en cours &nbsp; 🔵 à venir &nbsp; ⚪ terminée
 </div>
 <script>
-// ===== DONNÉES : à mettre à jour à partir du fichier ODS =====
-// zone = [lat, lon] approximative du centre de la zone
+// ===== DONNÉES INTÉGRÉES : utilisées uniquement si donnees.json est absent =====
+// Lorsque la page est servie par GitHub Pages avec un fichier donnees.json à côté,
+// ce sont les données du JSON qui sont affichées (mise à jour sans toucher au HTML).
 let DATA = [
  {debut:"2023-05-01", fin:"2023-08-31", zone:"Ouest Oléron", coords:[46.0,-1.7], navire:"SITULA 356 151 000 (38m)", obs:"Campagne de reconnaissance géophysique en ZEE et sur le plateau continental", ref:"2023/054"},
  {debut:"2023-05-11", fin:"2023-09-30", zone:"Erdeven / Sud Groix / Ouest Belle-Ile", coords:[47.3,-3.4], navire:"FARADAY, BALTIC EXPLORER", obs:"Levés géophysiques pour RTE – parc éolien Bretagne Sud", ref:"2023/062"},
@@ -160,7 +161,8 @@ let DATA = [
 ];
 
 (async function demarrerCarte(){
-  // Chargement central facultatif : en file://, fetch n’est pas fiable, on conserve les données intégrées.
+  // Chargement central : en GitHub Pages, la page lit donnees.json à côté d'elle.
+  // En file:// ou si le fichier est absent/invalide, on utilise les données intégrées.
   if (location.protocol !== "file:") {
     try {
       const reponse = await fetch("donnees.json", {cache:"no-store"});
@@ -177,6 +179,9 @@ let DATA = [
       // Fichier absent, indisponible ou invalide : utiliser les données intégrées sans alerte.
     }
   }
+
+  // Rafraîchissement automatique toutes les 5 minutes pour afficher les mises à jour du JSON.
+  setInterval(() => location.reload(), 5 * 60 * 1000);
 
 function dateISO(valeur){
   const v = String(valeur ?? "").trim();
@@ -224,7 +229,7 @@ function normaliserTexte(v){
 const positionsConnues = new Map();
 DATA.forEach(c => { if (!positionsConnues.has(normaliserTexte(c.zone))) positionsConnues.set(normaliserTexte(c.zone), c.coords); });
 function echapperHTML(v){
-  return String(v ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;", "'":"&#39;"})[ch]);
+  return String(v ?? "").replace(/[&<>"']/g, ch => ({"&":"&","<":"<",">":">",'"':""", "'":"'"})[ch]);
 }
 function creerMarqueur(c){
   c._statut = statut(c);
@@ -246,7 +251,6 @@ function actualiserAffichage(){
     const couleur = COULEURS[c._statut];
     c._marker.setStyle({color:couleur, fillColor:couleur});
     const visibleRecherche = !q || normaliserTexte(`${c.zone} ${c.navire} ${c.obs} ${c.ref}`).includes(q);
-    // Les travaux conservent leur règle existante (en cours seulement) ; les anciennes campagnes sont optionnelles.
     const visibleStatut = c.categorie === "travaux"
       ? c._statut === "encours"
       : c._statut !== "terminee" || afficherAnciennesCampagnes.checked;
@@ -280,7 +284,7 @@ function parserCSV(texte, separateur){
       ligne.push(champ);lignes.push(ligne);ligne=[];champ="";
     } else champ+=ch;
   }
-  if (guillemets) throw new Error("Un champ entre guillemets n’est pas refermé.");
+  if (guillemets) throw new Error("Un champ entre guillemets n'est pas refermé.");
   if (champ!=="" || ligne.length){ligne.push(champ);lignes.push(ligne);}
   return lignes;
 }
@@ -335,7 +339,7 @@ function convertirCSV(texte,categorie){
     if (!coords) coords=positionsConnues.get(normaliserTexte(val("zone"))) || [45.8,-2.5];
     importees.push({debut,fin,zone:val("zone"),coords,navire:val("navire"),obs:val("objet"),ref:val("ref"),categorie});
   }
-  if (!importees.length) throw new Error("Aucune ligne avec une date valide n’a été trouvée.");
+  if (!importees.length) throw new Error("Aucune ligne avec une date valide n'a été trouvée.");
   return {importees,ignorees};
 }
 function remplacerCategorie(importees,categorie){
@@ -389,7 +393,5 @@ afficherAnciennesCampagnes.addEventListener('change',actualiserAffichage);
 actualiserAffichage();
 })();
 </script>
-<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" data-cf-beacon='{"version":"2024.11.0","token":"8607d2a720d14b038279025b2b5a82e5","spa":2}' crossorigin="anonymous"></script>
-<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" data-cf-beacon='{"version":"2024.11.0","token":"8607d2a720d14b038279025b2b5a82e5","spa":2}' crossorigin="anonymous"></script>
 </body>
 </html>
