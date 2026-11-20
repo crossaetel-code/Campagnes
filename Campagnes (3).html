@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Campagnes scientifiques - Atlantique</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  body { margin:0; font-family:sans-serif; }
+  #map { height:100vh; width:100%; }
+  #panel { position:absolute; top:10px; left:10px; z-index:1000; background:white;
+           padding:10px; border-radius:6px; box-shadow:0 0 8px rgba(0,0,0,.3);
+           max-width:340px; max-height:85vh; overflow-y:auto; font-size:13px; }
+  input#search { width:95%; padding:5px; margin-bottom:8px; }
+  .import-actions { display:flex; flex-direction:column; gap:5px; margin:4px 0 8px; }
+  .import-actions button { text-align:left; padding:5px 7px; cursor:pointer; }
+  .anciennes-campagnes-toggle { display:block; margin:0 0 8px; }
+  .campagne { padding:6px; border-bottom:1px solid #ddd; cursor:pointer; }
+  .campagne:hover { background:#eef; }
+  .campagne b { color:#005; }
+  .date { color:#777; font-size:11px; }
+  .marker-actif { filter:hue-rotate(90deg); }
+  #legend { position:absolute; bottom:10px; right:10px; z-index:1000; background:white;
+            padding:8px; border-radius:6px; font-size:12px; box-shadow:0 0 8px rgba(0,0,0,.3);}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="panel">
+  <b>Campagnes en mer (maj 12/10/2026)</b>
+  <input id="search" type="text" placeholder="Rechercher zone, navire...">
+  <div class="import-actions">
+    <input id="csvCampagnes" type="file" accept=".csv,text/csv" hidden>
+    <button id="importCampagnes" type="button">Importer CSV - campagnes</button>
+    <input id="csvTravaux" type="file" accept=".csv,text/csv" hidden>
+    <button id="importTravaux" type="button">Importer CSV – travaux en mer</button>
+    <button id="exportDonneesJSON" type="button">💾 Exporter les données (JSON)</button>
+  </div>
+  <label class="anciennes-campagnes-toggle"><input id="afficherAnciennesCampagnes" type="checkbox"> Afficher les anciennes campagnes</label>
+  <div id="liste"></div>
+</div>
+<div id="legend">
+  🟢 en cours &nbsp; 🔵 à venir &nbsp; ⚪ terminée
+</div>
+<script>
+// ===== DONNÉES : à mettre à jour à partir du fichier ODS =====
+// zone = [lat, lon] approximative du centre de la zone
+let DATA = [
+ {debut:"2023-05-01", fin:"2023-08-31", zone:"Ouest Oléron", coords:[46.0,-1.7], navire:"SITULA 356 151 000 (38m)", obs:"Campagne de reconnaissance géophysique en ZEE et sur le plateau continental", ref:"2023/054"},
+ {debut:"2023-05-11", fin:"2023-09-30", zone:"Erdeven / Sud Groix / Ouest Belle-Ile", coords:[47.3,-3.4], navire:"FARADAY, BALTIC EXPLORER", obs:"Levés géophysiques pour RTE – parc éolien Bretagne Sud", ref:"2023/062"},
+ {debut:"2023-06-23", fin:"2023-10-30", zone:"Yeu – Noirmoutier", coords:[46.8,-2.4], navire:"ALMA KAPPA (37m)", obs:"Recherche scientifique", ref:"0-14334-2023"},
+ {debut:"2023-06-25", fin:"2023-09-30", zone:"Pertuis d'Antioche – Ouest Oléron", coords:[45.9,-1.6], navire:"FUGRO QUEST", obs:"Reconnaissance géotechnique marine en ZEE", ref:"2023/109"},
+ {debut:"2023-08-10", fin:"2023-11-30", zone:"Bretagne Sud", coords:[47.5,-3.8], navire:"SOLAR ODYSSEY", obs:"Suivi hydroacoustique des cétacés", ref:"D08-010_20230807"},
+ {debut:"2023-07-01", fin:"2023-12-01", zone:"Yeu – Noirmoutier", coords:[46.75,-2.5], navire:"NILE RIVER (9187007)", obs:"Préparation des fonds marins – parc éolien Yeu Noirmoutier", ref:"2023/125"},
+ {debut:"2023-07-01", fin:"2023-12-31", zone:"Capbreton – Finistère", coords:[45.5,-2.0], navire:"GEO OCEAN III/IV/V/VI", obs:"Étude préalable pose de câbles", ref:"0-16539-2023"},
+ {debut:"2023-07-10", fin:"2023-08-15", zone:"Golfe de Gascogne", coords:[45.0,-3.0], navire:"Drone DRIX", obs:"Essais de l'engin flottant", ref:"0-15557-2023"},
+ {debut:"2023-07-11", fin:"2023-07-27", zone:"SEM-REV", coords:[46.2,-1.85], navire:"PACIFIC DISPATCH, DISCOVERY", obs:"Ancrage projet France atlantique", ref:"0-16539-2023"},
+ {debut:"2023-07-24", fin:"2023-10-30", zone:"Parc éolien Yeu Noirmoutier", coords:[46.7,-2.3], navire:"ALMA KAPPA", obs:"Prélèvements de sédiment par vibro-carottage", ref:"0-11901-2023"},
+ {debut:"2023-08-08", fin:"2023-09-26", zone:"Banc de Guérande", coords:[47.15,-2.5], navire:"GEOSURVEYOR XI/V", obs:"Reconnaissance maintenance liaison du parc à la terre", ref:"0-17618-2023"},
+ {debut:"2023-08-15", fin:"2023-09-30", zone:"Ile d'Yeu et Noirmoutier", coords:[46.85,-2.35], navire:"GEOSURVEYOR XI", obs:"Cartographie", ref:""},
+ {debut:"2023-08-21", fin:"2023-11-24", zone:"Facade Atlantique", coords:[46.5,-2.5], navire:"", obs:"Plongées d'inventaires des poissons et des habitats", ref:"0-17966-2023"},
+ {debut:"2023-08-31", fin:"2023-10-31", zone:"Parc éolien Yeu Noirmoutier", coords:[46.72,-2.28], navire:"MAYAONE, ARCHIPEL III", obs:"Plongées d'inspection visuelle", ref:"0-18281-2023"},
+ {debut:"2023-09-04", fin:"2023-10-04", zone:"Parc éolien Bretagne Sud", coords:[47.4,-3.7], navire:"OMER GEOTEC / BREIZH-IZEL", obs:"Détermination des couches sédimentaires et rocheuses", ref:"0-18284-2023"},
+ {debut:"2023-09-05", fin:"2023-09-27", zone:"Gouf de Capbreton", coords:[44.6,-1.7], navire:"RV PELAGIA", obs:"Observations et expériences", ref:"0-18283-2023"},
+ {debut:"2023-09-05", fin:"2023-09-30", zone:"Parc éolien Banc de Guérande", coords:[47.1,-2.45], navire:"MINIPLON (23m)", obs:"Inspection de l'avifaune et mégafaune marine", ref:"0-11743-2023"},
+ {debut:"2023-09-11", fin:"2024-01-15", zone:"Capbreton", coords:[44.65,-1.75], navire:"GEOSURVEYOR XVII/XI", obs:"Étude préalable UXO – sites d'atterrage français", ref:"0-20190-2023"},
+ {debut:"2023-09-21", fin:"2023-12-15", zone:"Fort Boyard", coords:[45.95,-1.32], navire:"ANTIOCHE, ATOLL II, ROCHEBONNE, FAKARAVA, L'OUTIL", obs:"Sondages carottes et essais pressiométriques", ref:"0-20229-2023"},
+ {debut:"2023-09-25", fin:"2023-12-15", zone:"Baie de Concarneau – Les Glénan", coords:[47.7,-3.7], navire:"MAYAONE", obs:"Prise d'images sous-marine", ref:"0-20769-2023"},
+ {debut:"2023-10-23", fin:"2023-11-22", zone:"Golfe de Gascogne", coords:[45.2,-4.0], navire:"PAOLARSTERN (118m)", obs:"Mesures météorologiques, océanographiques et bathymétriques", ref:"0-18294-2023"},
+ {debut:"2023-11-12", fin:"2023-12-31", zone:"Parc éolien Yeu Noirmoutier", coords:[46.7,-2.3], navire:"NILE RIVER", obs:"Préparation des fonds marins", ref:"2023/206"},
+ {debut:"2024-01-29", fin:"2024-03-31", zone:"Parc éolien Yeu Noirmoutier", coords:[46.7,-2.3], navire:"Drone DRIX", obs:"Relevés bathymétriques par drone de surface", ref:"0-1632-2024"},
+ {debut:"2024-01-29", fin:"2024-03-29", zone:"Arcachon – Noirmoutier", coords:[45.6,-2.2], navire:"Drone DRIX", obs:"Étude interactions dauphins / pêche", ref:"0-1630-2024"},
+ {debut:"2024-02-01", fin:"2024-12-31", zone:"Gouf de Capbreton", coords:[44.6,-1.8], navire:"GEO OCEAN III-IX", obs:"Câble sous-marin Xlinks Morocco-UK Power", ref:"0-2404-2024"},
+ {debut:"2024-02-10", fin:"2024-02-10", zone:"Parc éolien Yeu Noirmoutier", coords:[46.75,-2.3], navire:"CABLE ENTERPRISE, BARBAROSSA I, NORMAND PACIFIC", obs:"Travaux RTE – faisceau électrique", ref:"2024/016"},
+ {debut:"2024-04-01", fin:"2024-05-31", zone:"Le Porge – Capbreton", coords:[44.9,-1.6], navire:"TSM ALIZE", obs:"Campagne géophysique – câble INELFE", ref:"0-6944-2024"},
+ {debut:"2024-04-02", fin:"2024-05-31", zone:"Parc éolien Bretagne Sud", coords:[47.4,-3.6], navire:"MAINPORT GEO, KARINA", obs:"Étude préalable câble de raccordement Bretagne Sud", ref:"0-7153-2024"},
+ {debut:"2024-04-16", fin:"2024-05-14", zone:"Golfe de Gascogne", coords:[45.1,-3.5], navire:"POLARSTERN", obs:"Mesures météorologiques, océanographiques et bathymétriques", ref:"0-2902-2024"},
+ {debut:"2024-04-25", fin:"2024-10-30", zone:"Lacanau – Armintza (ES)", coords:[44.7,-1.9], navire:"IEVOLI COBALT/AMBER/GREY", obs:"Études géotechniques, géophysiques, UXO – interconnexion France-Espagne", ref:"0-7375-2024"},
+ {debut:"2024-04-28", fin:"2024-05-19", zone:"Penmarc'h – Rochebonne", coords:[46.8,-4.0], navire:"TOM CREAN", obs:"Campagne Langolf UWTV 2024", ref:""},
+ {debut:"2024-06-01", fin:"2024-08-15", zone:"Lacanau – Armintza (ES)", coords:[44.7,-1.9], navire:"TSM ALIZE, OSV ARTABRO", obs:"Études géotechniques et géophysiques – câble France-Espagne", ref:"0-10023-2024"},
+ {debut:"2024-06-01", fin:"2024-07-30", zone:"Sud Chassiron – Espagne", coords:[44.9,-2.0], navire:"F/V EGUZKI LORE", obs:"Campagne SUMIDEROS 2024", ref:"0-10486-2024"},
+ {debut:"2024-06-10", fin:"2024-06-21", zone:"Golfe de Gascogne", coords:[45.4,-3.0], navire:"TRIDENS", obs:"Postes électriques en mer – parc éolien AO7", ref:"0-1969-2024"},
+ {debut:"2024-06-10", fin:"2024-10-31", zone:"Piriac – Montalivet", coords:[47.2,-2.8], navire:"GEO OCEAN VI, GEO SURVEYOR XXII, MINERVA UNO", obs:"Études géophysiques câble Gironde – Loire-Atlantique", ref:"0-14698-2024"},
+ {debut:"2024-06-20", fin:"2024-11-30", zone:"Parc éolien Ouest Oléron", coords:[45.9,-1.9], navire:"MINERVA UNO, NORSEMAID", obs:"Câble de raccordement parc éolien AO7", ref:"0-12639-2024"},
+ {debut:"2024-06-24", fin:"2024-09-30", zone:"Parc éolien St-Nazaire", coords:[47.2,-2.55], navire:"Drone DRIX", obs:"Relevé bathymétrique champ éolien St-Nazaire", ref:"0-10755-2024"},
+ {debut:"2024-07-20", fin:"2024-10-31", zone:"Les Glénan", coords:[47.72,-3.8], navire:"OCEARCH", obs:"Zone économique exclusive", ref:"0-7095-2024"},
+ {debut:"2024-07-17", fin:"2024-07-21", zone:"Large Oléron", coords:[45.7,-2.0], navire:"MINIBEX", obs:"AVURNAV 3231/24", ref:"0-23641-2023"},
+ {debut:"2024-08-01", fin:"2024-10-30", zone:"Lacanau – Armintza (ES)", coords:[44.7,-1.9], navire:"TSM ALIZE, OSV ARTABRO, VINA", obs:"Études géotechniques et géophysiques câble France-Espagne", ref:"0-15008-2024"},
+ {debut:"2024-08-15", fin:"2024-10-15", zone:"Ouest plateau de Rochebonne", coords:[46.3,-3.5], navire:"MINERVA UNO, GEO OCEAN VI", obs:"Étude géophysique zone propice B éolien en mer", ref:"0-16137-2024"},
+ {debut:"2024-08-15", fin:"2024-10-30", zone:"Golfe de Gascogne", coords:[45.3,-3.2], navire:"B/O EMMA BARDAN, ANGELES ALVARINO", obs:"Campagne anchois JUVENA 2024", ref:"2024-0336673"},
+ {debut:"2024-09-01", fin:"", zone:"Le Porge", coords:[44.9,-1.45], navire:"BARGE EIFFAGE 50, IEVOLI AMBER/COBALT", obs:"Introduction fourreaux microtunnel – atterrissage Porge, interconnexion INELFE", ref:"2024/183"},
+ {debut:"2024-11-11", fin:"2025-03-01", zone:"Large Arcachon – Côte Lande", coords:[44.5,-1.9], navire:"GEO OCEAN III-IX", obs:"Câble Xlinks Morocco – UK Power", ref:"0-21785-2024"},
+ {debut:"2024-11-25", fin:"2024-12-21", zone:"Golfe de Gascogne", coords:[44.8,-2.5], navire:"POLARSTERN", obs:"Interconnexion INELFE – atterrissage Porge", ref:"LETTRE PREMAR"},
+ {debut:"2024-08-30", fin:"2024-09-02", zone:"Golfe de Gascogne", coords:[45.0,-2.8], navire:"LAYLA", obs:"", ref:""},
+ {debut:"2025-01-01", fin:"2025-12-31", zone:"Parc éolien AO7", coords:[45.85,-1.85], navire:"MINIBEX", obs:"État de référence habitats benthiques – parc éolien AO7", ref:"2024/245"},
+ {debut:"2023-04-01", fin:"2026-04-30", zone:"Iles d'Yeu et Noirmoutier", coords:[46.8,-2.4], navire:"MINIPLON", obs:"Campagne Quiet Ocean – suivi acoustique", ref:""},
+ {debut:"2026-01-01", fin:"2026-12-31", zone:"Large Chassiron", coords:[46.0,-1.6], navire:"COLUMBUS", obs:"Suivi géophysique de concessions de granulat", ref:""},
+ {debut:"2026-04-01", fin:"2026-11-30", zone:"Bayonne – Capbreton", coords:[43.6,-1.6], navire:"NANOPLON", obs:"Études géophysiques – système houlomoteur", ref:"0-2783-2026"},
+ {debut:"2023-05-22", fin:"2028-05-22", zone:"Sables d'Olonne", coords:[46.5,-1.85], navire:"NANOPLON / MAXIPLON", obs:"Campagne Nantes Université", ref:""},
+ {debut:"2025-01-31", fin:"2026-03-28", zone:"Piriac – Soulac", coords:[47.1,-2.6], navire:"MINIBEX, RENAISSANCE II, FRISBY, JANUS 2", obs:"Étude préalable pose/enlèvement câbles et pipelines", ref:"0-1565-2025"},
+ {debut:"2025-02-07", fin:"2025-12-31", zone:"Golfe de Gascogne – Cap Ferret à Hendaye", coords:[44.4,-2.0], navire:"GEO OCEAN III-IX", obs:"Câble Xlinks Morocco – UK Power", ref:"1844-2025"},
+ {debut:"2025-02-18", fin:"2025-06-15", zone:"Pointe de Penchâteau – Hourtin", coords:[45.3,-1.6], navire:"GEO OCEAN V-VI-VIII-IX", obs:"Géophysique raccordement Gironde – Loire-Atlantique", ref:"0-2266-2025"},
+ {debut:"2025-03-01", fin:"2025-03-31", zone:"Golfe de Gascogne", coords:[44.8,-3.0], navire:"MIGUEL OLIVER", obs:"Étude populations de poissons CAREVA 0325", ref:""},
+ {debut:"2025-03-10", fin:"2025-04-05", zone:"Golfe de Gascogne", coords:[44.9,-3.2], navire:"ANGELES ALVARINO", obs:"MEGS1-2025 / MEGS2-2025", ref:""},
+ {debut:"2025-03-12", fin:"2025-07-30", zone:"Parc éolien Yeu Noirmoutier", coords:[46.75,-2.3], navire:"TSM TEXEL", obs:"Suivi bathymétrique", ref:"0-3164-2025"},
+ {debut:"2025-03-21", fin:"2026-05-31", zone:"Piriac – Soulac", coords:[47.05,-2.65], navire:"MINIBEX, THALIA, NANOPLON, JANUS 2, RENAISSANCE II, FRISBY", obs:"Étude préalable pose câbles – habitat benthique", ref:"0-3578-2025"},
+ {debut:"2025-04-01", fin:"2025-04-30", zone:"Golfe de Gascogne", coords:[44.6,-3.5], navire:"VIZCONDE DE EZA", obs:"JUREVA 0425", ref:""},
+ {debut:"2025-04-11", fin:"2025-06-15", zone:"Piriac – Soulac", coords:[47.1,-2.6], navire:"GEO OCEAN V-VI-VIII-IX", obs:"Câble Gironde – Loire-Atlantique", ref:"0-4686-2025"},
+ {debut:"2025-04-19", fin:"2025-05-09", zone:"Golfe de Gascogne", coords:[44.7,-2.8], navire:"THALASSA", obs:"Travaux au large de Messanges", ref:""},
+ {debut:"2025-05-05", fin:"2025-05-23", zone:"Golfe de Gascogne", coords:[45.1,-3.0], navire:"TRIDENS", obs:"Recherche maquereau et chinchard", ref:"2025-1/2c1"},
+ {debut:"2025-05-28", fin:"2025-08-30", zone:"Gironde – Loire-Atlantique", coords:[45.8,-1.9], navire:"GEO OCEAN III-VIII-IX", obs:"Étude géotechnique câble Gironde-Loire", ref:"0-6691-2025"},
+ {debut:"2025-06-11", fin:"2025-07-29", zone:"Golfe de Gascogne", coords:[44.9,-3.3], navire:"CELTIC EXPLORER", obs:"Câble Gironde – Loire-Atlantique", ref:"0-6887-2025"},
+ {debut:"2025-07-10", fin:"2025-07-29", zone:"Bretagne Sud", coords:[47.5,-4.0], navire:"ALTAIRE", obs:"Recherche œufs de maquereaux", ref:"0-7674-2025"},
+ {debut:"2025-07-31", fin:"2025-08-15", zone:"Groix – Estuaire Loire", coords:[47.3,-2.7], navire:"COTE DE LA MANCHE", obs:"Campagne RIOVILO", ref:"0-7553-2025"},
+ {debut:"2025-09-01", fin:"2025-09-06", zone:"Banc de Guérande", coords:[47.15,-2.5], navire:"COTE DE LA MANCHE", obs:"Appel d'offre AO5 Bretagne Sud", ref:"0-7293-2025"},
+ {debut:"2025-08-26", fin:"2025-12-31", zone:"Large Belle-Ile", coords:[47.25,-3.6], navire:"GEO OCEAN IX", obs:"Géophysique éoliennes flottantes PENNAVEL", ref:"0-9438-2025"},
+ {debut:"2025-09-15", fin:"2026-03-15", zone:"St-Gilles – Groix – Vie – Golfe de Gascogne", coords:[46.8,-3.0], navire:"EXPLORA – EXPLORER", obs:"Géophysique/géotechnique raccordement France-Irlande-Espagne-Portugal", ref:"0-10595-2025"},
+ {debut:"2025-08-13", fin:"2025-08-27", zone:"Golfe de Gascogne SE", coords:[44.3,-1.7], navire:"NG WORKER", obs:"Extraction de pierres/débris – câbles INELFE", ref:"P-2487"},
+ {debut:"2025-12-15", fin:"2026-02-14", zone:"Ouest de Groix", coords:[47.2,-3.9], navire:"SPERED SKORF", obs:"Mesures acoustiques par bouée dérivante", ref:"0-14709-2025"},
+ {debut:"2025-12-30", fin:"2026-03-31", zone:"Champ éolien Bretagne Sud", coords:[47.4,-3.65], navire:"GEO OCEAN VI", obs:"Campagne d'études géotechniques", ref:"0-14812-2025"},
+ {debut:"2026-03-31", fin:"2026-08-31", zone:"Gouf de Capbreton", coords:[44.6,-1.75], navire:"JIF MARLIN, JIF ALIZE", obs:"Mesures par ROV", ref:"0-2891-2026"},
+ {debut:"2026-03-01", fin:"2026-05-30", zone:"Parc éolien St-Nazaire", coords:[47.2,-2.55], navire:"TZIGANE II, REBORN", obs:"Suivi environnemental post-raccordement", ref:"0-1971-2026"},
+ {debut:"2026-03-01", fin:"2028-12-31", zone:"Les Sables d'Olonne", coords:[46.5,-1.9], navire:"Minibex, JANUS II, Nanoplon, Thalia, Norsemaid", obs:"Campagnes de prélèvement de sédiment", ref:"0-1432-2026"},
+ {debut:"2026-03-13", fin:"2026-10-30", zone:"Sud Golfe de Gascogne", coords:[43.8,-2.2], navire:"NG WORKER", obs:"Étude des fonds avant ensouillage de câbles", ref:"0-1427-2026"},
+ {debut:"2026-03-23", fin:"2026-04-02", zone:"Golfe de Gascogne", coords:[45.0,-3.5], navire:"STATSRAAD LEHMKUHL", obs:"Mesures physico-chimiques", ref:"0-13684-2025"},
+ {debut:"2026-04-01", fin:"2027-12-31", zone:"Champ éolien Bretagne Sud", coords:[47.4,-3.6], navire:"MINIBEX, STERENN RED/DA GARAN/GLAZ", obs:"État initial environnement raccordement Bretagne Sud", ref:"0-2440-2026"},
+ {debut:"2026-04-01", fin:"2026-05-30", zone:"Embouchure de la Gironde", coords:[45.6,-1.2], navire:"SCAPH III", obs:"Étude géophysique", ref:"0-2458-2026"},
+ {debut:"2026-04-04", fin:"2026-04-26", zone:"Frontière espagnole", coords:[43.4,-1.8], navire:"B/O VIZCONDE DE EZA", obs:"Étude poissons pélagiques", ref:"0-13310-2025"},
+ {debut:"2026-04-07", fin:"2026-06-11", zone:"Banc de Guérande", coords:[47.15,-2.5], navire:"JIF SURVEYOR, REBORN, JIF MARLIN", obs:"Impact des éoliennes sur les poissons", ref:"0-2386-2025"},
+ {debut:"2026-04-19", fin:"2026-06-06", zone:"Golfe de Gascogne", coords:[45.2,-4.2], navire:"L'ATALANTE", obs:"OVIDE 2026", ref:"0-3412-2026"},
+ {debut:"2026-04-22", fin:"2026-05-10", zone:"Golfe de Gascogne", coords:[44.8,-3.0], navire:"TOM CREAN", obs:"Population de langoustines", ref:"0-11922-2025"},
+ {debut:"2026-05-05", fin:"2026-05-31", zone:"Frontière espagnole", coords:[43.4,-1.9], navire:"EMMA BARDAN, VIZCONDE DE EZA", obs:"BIOMAN 2026", ref:"0-3412-2026"},
+ {debut:"2026-04-01", fin:"2027-06-30", zone:"Penmarc'h", coords:[47.8,-4.4], navire:"ARMORIQUE", obs:"Installation de bouées météorologiques", ref:"2026/014"},
+ {debut:"2026-06-15", fin:"2026-06-28", zone:"115 NM SO Penmarc'h", coords:[46.2,-5.5], navire:"SAPEUR YARA, SELA", obs:"Ammoniac réfrigéré en mer (projet ARISE)", ref:"0-4487-2026"},
+ {debut:"2026-06-15", fin:"2026-08-15", zone:"Saint-Martin de Ré", coords:[46.2,-1.4], navire:"ALBATROS", obs:"Prospections avec plongeurs", ref:"0-3114-2026"},
+ {debut:"2026-06-01", fin:"2026-08-30", zone:"Les Sables d'Olonne", coords:[46.5,-1.8], navire:"CAPS IV", obs:"Prospections avec plongeurs", ref:"0-3112-2026"},
+ {debut:"2026-06-01", fin:"2026-10-31", zone:"Gouf de Capbreton", coords:[44.6,-1.7], navire:"JIF LACYDON/GYPTIS/SURVEYOR/PATROL 2, ABYSSA", obs:"CARTOGOUV AUV", ref:"30449174"},
+ {debut:"2026-07-01", fin:"2026-08-30", zone:"Golfe de Gascogne", coords:[45.0,-3.0], navire:"LE KERLAVET II, WAIRUA", obs:"Enregistrements acoustiques des delphinidés", ref:"0-4546-2026"},
+ {debut:"2026-06-16", fin:"2027-08-01", zone:"Large Biscarosse", coords:[44.4,-1.5], navire:"ARMORIQUE", obs:"Installation de bouées météorologiques", ref:"2026/4270"},
+ {debut:"2026-07-03", fin:"2026-08-08", zone:"Belle-Ile", coords:[47.3,-3.2], navire:"POURQUOI PAS", obs:"SOLMINEUR 2026", ref:"0-3971-2026"},
+ {debut:"2026-08-14", fin:"2026-10-15", zone:"Le Porge – Golfe de Gascogne", coords:[44.9,-2.0], navire:"FUGRO ARTIC/DISCOVERY/GAUSS, L'EMBELLIE", obs:"Câbles sous-marins France – USA", ref:"32365799"},
+ {debut:"2026-09-01", fin:"2028-08-31", zone:"Parc éolien GGS", coords:[44.2,-1.7], navire:"Minibex, JANUS II, Nanoplon, Sterenn Norzh", obs:"Qualité de l'eau et bruit ambiant – parc éolien GGS", ref:"32531085"},
+ {debut:"2026-09-01", fin:"2027-01-31", zone:"Rade de Lorient", coords:[47.7,-3.45], navire:"INISHGLAS, TZIGANE II", obs:"Campagne SINAY – suivi acoustique", ref:"32685951"},
+ {debut:"2026-09-30", fin:"2030-09-29", zone:"SW Ile d'Oléron", coords:[45.7,-2.0], navire:"SCAPH III", obs:"Recherche, mesures, recueil de données", ref:"32785529"},
+ {debut:"2026-10-02", fin:"2026-12-15", zone:"Large d'Oléron", coords:[45.8,-1.9], navire:"Thalia", obs:"Recherche, mesures, recueil de données", ref:"32214457"},
+ {debut:"2026-10-05", fin:"2026-10-09", zone:"Ile de Groix", coords:[47.6,-3.4], navire:"EIH JULES", obs:"Projet FiberSCOPE (École navale + SHOM)", ref:"32590951"},
+ {debut:"2026-10-06", fin:"2026-10-20", zone:"Pornic / Préfailles", coords:[47.1,-2.2], navire:"FARADAY, STERENN DA GARAN", obs:"Campagne géophysique RTE (Projet GILA)", ref:"2026/152"},
+ {debut:"2026-10-08", fin:"2026-10-25", zone:"Large Penmarc'h", coords:[47.9,-5.0], navire:"POURQUOI PAS ?", obs:"Essais en mer", ref:"32635021"},
+ {debut:"2026-10-26", fin:"2026-12-18", zone:"Biarritz", coords:[43.45,-1.6], navire:"EKOCEAN EXPLORER", obs:"Campagne de prélèvements", ref:"33769124"},
+ {debut:"2026-11-02", fin:"2027-05-28", zone:"Houat / Hoëdic", coords:[47.4,-2.9], navire:"REBORN", obs:"Projet IDRA BIO – prélèvements sédimentaires", ref:"33392272"},
+ // ===== TRAVAUX EN MER =====
+ {debut:"2022-04-18", fin:"2027-04-18", zone:"Parc éolien Yeu", coords:[46.85,-2.35], navire:"NANOPLON", obs:"Bouées océanographiques – turbidité (maintenance bimestrielle)", ref:"", categorie:"travaux"},
+ {debut:"2025-07-01", fin:"2028-12-31", zone:"Belle-Ile – Hoëdic", coords:[47.35,-3.1], navire:"BNS OOSTENDE", obs:"Programme MCMV Benelux – chasseurs de mines, réflecteurs acoustiques", ref:"", categorie:"travaux"},
+ {debut:"2025-07-15", fin:"2028-05-01", zone:"Fort Boyard", coords:[45.95,-1.32], navire:"EMPEDOCLE", obs:"Travaux de protection du Fort Boyard", ref:"", categorie:"travaux"},
+ {debut:"2025-10-28", fin:"", zone:"Seignosse", coords:[43.66,-1.35], navire:"TSM BERGENMARIA", obs:"Interconnexion France-Espagne INELFE", ref:"2025/206", categorie:"travaux"},
+ {debut:"2026-03-20", fin:"", zone:"Capbreton", coords:[43.64,-1.5], navire:"TSM OUESSANT, FUNGY", obs:"Interconnexion France-Espagne INELFE", ref:"2026/040", categorie:"travaux"},
+ {debut:"2026-05-21", fin:"", zone:"Capbreton", coords:[43.63,-1.55], navire:"MONNA LISA, LEONARDO DA VINCI, NG WORKER, NJORD R, NORMAND PACIFIC, C-INSTALLER", obs:"Interconnexion France-Espagne INELFE (40 et 33)", ref:"2026/067", categorie:"travaux"},
+ {debut:"2026-05-23", fin:"2026-10-30", zone:"Frontière espagnole", coords:[43.38,-1.75], navire:"NG WORKER, NKT VICTORIA, G/V AR LAERES", obs:"Interconnexion France-Espagne INELFE", ref:"", categorie:"travaux"},
+ {debut:"2026-10-17", fin:"", zone:"Banc de Guérande", coords:[47.15,-2.5], navire:"TVO MARINER", obs:"Réparation câble inter-éolien – parc du Banc de Guérande", ref:"", categorie:"travaux"},
+];
+
+(async function demarrerCarte(){
+  // Chargement central facultatif : en file://, fetch n’est pas fiable, on conserve les données intégrées.
+  if (location.protocol !== "file:") {
+    try {
+      const reponse = await fetch("donnees.json", {cache:"no-store"});
+      if (reponse.ok) {
+        const donneesDistantes = await reponse.json();
+        if (Array.isArray(donneesDistantes) && donneesDistantes.every(c =>
+          c && typeof c === "object" && typeof c.debut === "string" &&
+          typeof c.zone === "string" && Array.isArray(c.coords) && c.coords.length === 2 &&
+          c.coords.every(Number.isFinite))) {
+          DATA = donneesDistantes;
+        }
+      }
+    } catch (_) {
+      // Fichier absent, indisponible ou invalide : utiliser les données intégrées sans alerte.
+    }
+  }
+
+function dateISO(valeur){
+  const v = String(valeur ?? "").trim();
+  let match = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (match){
+    const iso = `${match[1]}-${match[2].padStart(2,"0")}-${match[3].padStart(2,"0")}`;
+    const d = new Date(`${iso}T00:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0,10) === iso ? iso : "";
+  }
+  match = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (match){
+    const iso = `${match[3]}-${match[2].padStart(2,"0")}-${match[1].padStart(2,"0")}`;
+    const d = new Date(`${iso}T00:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0,10) === iso ? iso : "";
+  }
+  return "";
+}
+function aujourdHuiISO(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function statut(c){
+  const aujourdhui = aujourdHuiISO();
+  if (c.debut > aujourdhui) return "avenir";
+  if (!c.fin || c.fin >= aujourdhui) return "encours";
+  return "terminee";
+}
+const COULEURS = {encours:"#2e7d32", avenir:"#1565c0", terminee:"#9e9e9e"};
+DATA.forEach(c => { if (!c.categorie) c.categorie = "campagnes"; });
+
+const map = L.map('map').setView([45.8,-2.5], 7);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles © Esri — sources: GEBCO, NOAA, Ocean Basemap', maxZoom: 13
+}).addTo(map);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 13
+}).addTo(map);
+
+const liste = document.getElementById('liste');
+const recherche = document.getElementById('search');
+const afficherAnciennesCampagnes = document.getElementById('afficherAnciennesCampagnes');
+function normaliserTexte(v){
+  return String(v ?? "").normalize('NFD').replace(/[\u0300-\u036f]/g,"").toLocaleLowerCase('fr').trim();
+}
+const positionsConnues = new Map();
+DATA.forEach(c => { if (!positionsConnues.has(normaliserTexte(c.zone))) positionsConnues.set(normaliserTexte(c.zone), c.coords); });
+function echapperHTML(v){
+  return String(v ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;", "'":"&#39;"})[ch]);
+}
+function creerMarqueur(c){
+  c._statut = statut(c);
+  const couleur = COULEURS[c._statut];
+  const m = L.circleMarker(c.coords, {radius:7, color:couleur, fillColor:couleur, fillOpacity:0.85, weight:2});
+  m.bindPopup(`<b>${echapperHTML(c.zone)}</b><br>
+    <span class="date">${echapperHTML(c.debut)} → ${echapperHTML(c.fin || "en cours")}</span><br>
+    <b>Navire(s) :</b> ${echapperHTML(c.navire || "—")}<br>
+    <b>Objet :</b> ${echapperHTML(c.obs || "—")}<br>
+    <b>Réf. :</b> ${echapperHTML(c.ref || "—")}`);
+  c._marker = m;
+}
+DATA.forEach(creerMarqueur);
+function actualiserAffichage(){
+  const q = normaliserTexte(recherche.value);
+  liste.innerHTML = "";
+  DATA.forEach(c => {
+    c._statut = statut(c);
+    const couleur = COULEURS[c._statut];
+    c._marker.setStyle({color:couleur, fillColor:couleur});
+    const visibleRecherche = !q || normaliserTexte(`${c.zone} ${c.navire} ${c.obs} ${c.ref}`).includes(q);
+    // Les travaux conservent leur règle existante (en cours seulement) ; les anciennes campagnes sont optionnelles.
+    const visibleStatut = c.categorie === "travaux"
+      ? c._statut === "encours"
+      : c._statut !== "terminee" || afficherAnciennesCampagnes.checked;
+    if (visibleRecherche && visibleStatut){
+      if (!map.hasLayer(c._marker)) c._marker.addTo(map);
+      const item = document.createElement('div'); item.className = 'campagne';
+      const titre = document.createElement('b'); titre.textContent = `${c.zone} — ${c.navire || "Navire non précisé"}`;
+      const date = document.createElement('div'); date.className = 'date';
+      date.textContent = `${c.debut} → ${c.fin || "en cours"}`;
+      const objet = document.createElement('div'); objet.textContent = c.obs || "Objet non précisé";
+      item.append(titre,date,objet);
+      item.addEventListener('click', () => { map.setView(c.coords, Math.max(map.getZoom(),9)); c._marker.openPopup(); });
+      liste.appendChild(item);
+    } else if (map.hasLayer(c._marker)) map.removeLayer(c._marker);
+  });
+}
+
+// Parse des enregistrements CSV, y compris guillemets doublés et retours à la ligne dans les champs.
+function parserCSV(texte, separateur){
+  const lignes=[]; let ligne=[], champ="", guillemets=false;
+  for (let i=0;i<texte.length;i++){
+    const ch=texte[i];
+    if (guillemets){
+      if (ch==='"' && texte[i+1]==='"'){champ+='"';i++;}
+      else if (ch==='"') guillemets=false;
+      else champ+=ch;
+    } else if (ch==='"' && champ==="") guillemets=true;
+    else if (ch===separateur){ligne.push(champ);champ="";}
+    else if (ch==='\n' || ch==='\r'){
+      if (ch==='\r' && texte[i+1]==='\n') i++;
+      ligne.push(champ);lignes.push(ligne);ligne=[];champ="";
+    } else champ+=ch;
+  }
+  if (guillemets) throw new Error("Un champ entre guillemets n’est pas refermé.");
+  if (champ!=="" || ligne.length){ligne.push(champ);lignes.push(ligne);}
+  return lignes;
+}
+function cleEntete(v){
+  return String(v ?? "").replace(/^\uFEFF/,"").normalize('NFD').replace(/[\u0300-\u036f]/g,"")
+    .toLocaleLowerCase('fr').replace(/[^a-z0-9]/g,"");
+}
+function typeEntete(v){
+  const h=cleEntete(v);
+  if (h === "debut" || h === "datedebut") return "debut";
+  if (h === "fin" || h === "datefin") return "fin";
+  if (h === "zone" || h === "secteur") return "zone";
+  if (h.startsWith("navire")) return "navire";
+  if (h === "objet" || h.startsWith("objet") || h === "obs" || h.startsWith("obs") || h.startsWith("observation")) return "objet";
+  if (h === "ref" || h.startsWith("ref") || h.includes("decision") || h.includes("arrete")) return "ref";
+  return "";
+}
+function detecterStructure(texte){
+  const candidats=[",",";","\t",":"];
+  let meilleur=null;
+  for (const sep of candidats){
+    let lignes;
+    try { lignes=parserCSV(texte,sep); } catch (_) { continue; }
+    for (let i=0;i<Math.min(10,lignes.length);i++){
+      const types=lignes[i].map(typeEntete);
+      const indices={};
+      types.forEach((t,j)=>{if(t && indices[t]===undefined) indices[t]=j;});
+      const score=Object.keys(indices).length;
+      if (indices.debut!==undefined && indices.fin!==undefined && indices.zone!==undefined && indices.navire!==undefined && indices.objet!==undefined && indices.ref!==undefined && (!meilleur || score>meilleur.score))
+        meilleur={sep,lignes,entete:i,indices,score};
+    }
+  }
+  if (!meilleur) throw new Error("En-tête introuvable dans les 10 premières lignes (DEBUT, FIN, ZONE, NAVIRE(S), OBJET/OBS, REF/DÉCISIONS/ARRÊTÉS requis).");
+  return meilleur;
+}
+function convertirCSV(texte,categorie){
+  const {lignes,entete,indices}=detecterStructure(texte);
+  const importees=[]; let ignorees=0;
+  for (const vals of lignes.slice(entete+1)){
+    if (vals.every(v=>!String(v ?? "").trim())) continue;
+    const val=k=>String(vals[indices[k]] ?? "").trim();
+    const debut=dateISO(val("debut"));
+    const brutFin=val("fin"), fin=brutFin ? dateISO(brutFin) : "";
+    if (!debut || (brutFin && !fin)){ignorees++;continue;}
+    const latIndex=indices.lat, lonIndex=indices.lon;
+    let coords;
+    if (latIndex!==undefined && lonIndex!==undefined){
+      const lat=Number(String(vals[latIndex] ?? "").replace(",","."));
+      const lon=Number(String(vals[lonIndex] ?? "").replace(",","."));
+      if (Number.isFinite(lat)&&Number.isFinite(lon)&&lat>=-90&&lat<=90&&lon>=-180&&lon<=180) coords=[lat,lon];
+    }
+    if (!coords) coords=positionsConnues.get(normaliserTexte(val("zone"))) || [45.8,-2.5];
+    importees.push({debut,fin,zone:val("zone"),coords,navire:val("navire"),obs:val("objet"),ref:val("ref"),categorie});
+  }
+  if (!importees.length) throw new Error("Aucune ligne avec une date valide n’a été trouvée.");
+  return {importees,ignorees};
+}
+function remplacerCategorie(importees,categorie){
+  const conserves=DATA.filter(c=>c.categorie!==categorie);
+  DATA.filter(c=>c.categorie===categorie).forEach(c=>{if(c._marker && map.hasLayer(c._marker)) map.removeLayer(c._marker);});
+  DATA=conserves.concat(importees);
+  importees.forEach(creerMarqueur);
+  actualiserAffichage();
+  const visibles=DATA.filter(c=>map.hasLayer(c._marker));
+  if(visibles.length===1) map.setView(visibles[0].coords,Math.max(map.getZoom(),7));
+  else if(visibles.length>1) map.fitBounds(L.latLngBounds(visibles.map(c=>c.coords)),{padding:[25,25],maxZoom:9});
+}
+function brancherImport(boutonId,inputId,categorie){
+  const bouton=document.getElementById(boutonId), fichier=document.getElementById(inputId);
+  bouton.addEventListener('click',()=>fichier.click());
+  fichier.addEventListener('change',()=>{
+    const f=fichier.files && fichier.files[0]; if(!f) return;
+    const lecteur=new FileReader();
+    lecteur.onload=()=>{
+      try{
+        const {importees,ignorees}=convertirCSV(String(lecteur.result ?? ""),categorie);
+        remplacerCategorie(importees,categorie);
+        alert(`Import terminé : ${importees.length} ligne(s) chargée(s) dans ${categorie === "campagnes" ? "campagnes scientifiques" : "travaux en mer"}.${ignorees ? ` ${ignorees} ligne(s) ignorée(s) (date invalide ou manquante).` : ""}`);
+      } catch(erreur){alert(`Import CSV impossible : ${erreur.message}`);}
+      finally{fichier.value="";}
+    };
+    lecteur.onerror=()=>{alert("Erreur lors de la lecture du fichier CSV.");fichier.value="";};
+    lecteur.readAsText(f,'UTF-8');
+  });
+}
+brancherImport('importCampagnes','csvCampagnes','campagnes');
+brancherImport('importTravaux','csvTravaux','travaux');
+function exporterDonneesJSON(){
+  const donneesExportees = DATA.map(c => ({
+    debut:c.debut, fin:c.fin || "", zone:c.zone, coords:[...c.coords],
+    navire:c.navire || "", obs:c.obs || "", ref:c.ref || "", categorie:c.categorie || "campagnes"
+  }));
+  const blob = new Blob([JSON.stringify(donneesExportees, null, 2)], {type:"application/json;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const lien = document.createElement("a");
+  lien.href = url;
+  lien.download = "donnees.json";
+  document.body.appendChild(lien);
+  lien.click();
+  lien.remove();
+  URL.revokeObjectURL(url);
+}
+document.getElementById('exportDonneesJSON').addEventListener('click',exporterDonneesJSON);
+recherche.addEventListener('input',actualiserAffichage);
+afficherAnciennesCampagnes.addEventListener('change',actualiserAffichage);
+actualiserAffichage();
+})();
+</script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" data-cf-beacon='{"version":"2024.11.0","token":"8607d2a720d14b038279025b2b5a82e5","spa":2}' crossorigin="anonymous"></script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" data-cf-beacon='{"version":"2024.11.0","token":"8607d2a720d14b038279025b2b5a82e5","spa":2}' crossorigin="anonymous"></script>
+</body>
+</html>
